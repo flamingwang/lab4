@@ -33,7 +33,7 @@ static int listen_port;
  * a bounded buffer that simplifies reading from and writing to peers.
  */
 
-#define TASKBUFSIZ	4096	// Size of task_t::buf
+#define TASKBUFSIZ	(4096<<4)	// Size of task_t::buf
 #define FILENAMESIZ	256	// Size of task_t::filename
 
 typedef enum tasktype {		// Which type of connection is this?
@@ -149,6 +149,8 @@ typedef enum taskbufresult {		// Status of a read or write attempt.
 					//    caller should wait.
 } taskbufresult_t;
 
+int total_amt;
+
 // read_to_taskbuf(fd, t)
 //	Reads data from 'fd' into 't->buf', t's bounded buffer, either until
 //	't's bounded buffer fills up, or no more data from 't' is available,
@@ -161,11 +163,18 @@ taskbufresult_t read_to_taskbuf(int fd, task_t *t)
 	unsigned tailpos = (t->tail % TASKBUFSIZ);
 	ssize_t amt;
 
-	if (t->head == t->tail || headpos < tailpos)
+	if (t->head == t->tail || headpos < tailpos) {
 		amt = read(fd, &t->buf[tailpos], TASKBUFSIZ - tailpos);
-	else
+		total_amt += amt;
+	}
+	else {
 		amt = read(fd, &t->buf[tailpos], headpos - tailpos);
-
+		total_amt += amt;
+	}
+	if (total_amt >= 1024 * 1024 * 10) {
+		error("* file size too large");
+		return TBUF_ERROR;
+	}
 	if (amt == -1 && (errno == EINTR || errno == EAGAIN
 			  || errno == EWOULDBLOCK))
 		return TBUF_AGAIN;
@@ -183,6 +192,8 @@ taskbufresult_t read_to_taskbuf(int fd, task_t *t)
 // write_from_taskbuf(fd, t)
 //	Writes data from 't' into 't->fd' into 't->buf', using similar
 //	techniques and identical return values as read_to_taskbuf.
+int total_amt2;
+
 taskbufresult_t write_from_taskbuf(int fd, task_t *t)
 {
 	unsigned headpos = (t->head % TASKBUFSIZ);
@@ -191,11 +202,18 @@ taskbufresult_t write_from_taskbuf(int fd, task_t *t)
 
 	if (t->head == t->tail)
 		return TBUF_END;
-	else if (headpos < tailpos)
+	else if (headpos < tailpos) {
 		amt = write(fd, &t->buf[headpos], tailpos - headpos);
-	else
+		total_amt2 += amt;
+	}
+	else {
 		amt = write(fd, &t->buf[headpos], TASKBUFSIZ - headpos);
-
+		total_amt2 += amt;
+	}
+	if (total_amt2 >= 1024 * 1024 * 10) {
+		error("* file size too large");
+		return TBUF_ERROR;
+	}
 	if (amt == -1 && (errno == EINTR || errno == EAGAIN
 			  || errno == EWOULDBLOCK))
 		return TBUF_AGAIN;
@@ -474,7 +492,10 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		error("* Error while allocating task");
 		goto exit;
 	}
-	strcpy(t->filename, filename);
+	strncpy(t->filename, filename, FILENAMESIZ);
+	t->filename[FILENAMESIZ-1] = 0;
+	if (strlen(t->filename) > FILENAMESIZ)
+		error("*filename size is greater than max size");
 
 	// add peers
 	s1 = tracker_task->buf;
@@ -531,7 +552,12 @@ static void task_download(task_t *t, task_t *tracker_task)
 	// at all.
 	for (i = 0; i < 50; i++) {
 		if (i == 0)
-			strcpy(t->disk_filename, t->filename);
+		{
+			strncpy(t->disk_filename, t->filename, FILENAMESIZ);
+			t->filename[FILENAMESIZ-1] = 0;	
+			if (strlen(t->filename) > FILENAMESIZ)
+				error("*filename size is greater than max size");
+		}
 		else
 			sprintf(t->disk_filename, "%s~%d~", t->filename, i);
 		t->disk_fd = open(t->disk_filename,
@@ -646,6 +672,28 @@ static void task_upload(task_t *t)
 		goto exit;
 	}
 	t->head = t->tail = 0;
+
+	char cur_dir[PATH_MAX];
+	char requested_dir[PATH_MAX];
+
+	getcwd(cur_dir, PATH_MAX);
+	realpath(t->filename, requested_dir);
+
+	if (cur_dir == NULL)
+	{
+		error("* Current path invalid.");
+		goto exit;
+	}
+	else if (requested_dir == NULL)
+	{
+		error("* Requested path invalid.")
+		goto exit;
+	}
+
+	if (strcmp(cur_dir, requested_dir)) {
+		error("* The peer can only serve files in the current directory");
+		goto exit
+	}
 
 	t->disk_fd = open(t->filename, O_RDONLY);
 	if (t->disk_fd == -1) {

@@ -13,14 +13,14 @@
 # information you'd like us to know, please add it at the end of the file.
 
 # Partner 1
-Name: 
-Student ID: 
-Email: 
+Name: Sean Wang
+Student ID: 604151638
+Email: seanwang22@ucla.edu
 
 # Partner 2 (if you're working in a team)
-Name: 
-Student ID: 
-Email: 
+Name: Dennis Gahm
+Student ID: 704016107
+Email: dennisgahm@gmail.com
 
 # EXERCISE 1: What method you used to make your peer download and upload
 #    files in parallel?  (~1-3 sentences)
@@ -28,7 +28,21 @@ Email:
 # EXERCISE 2A: What conditions did you find and fix that would have
 #    triggered a buffer overrun bug?  (~1-3 sentences each)
 
+Where there was an strcpy we used strncpy so that the characters could be
+limited to FILENAMESIZ.  If the file name size is greater than filenamesiz,
+then an error is outputted.  We also null-terminated the string.
+
+
 # EXERCISE 2B: What other robustness problems did you fix?  (~1-3 sentences
 #    each)
+
+Check the size of the file and if the file is too big then return an error.
+
+Checked if requested directory is current directory.
+
+Checked the requested and current directory are valid - that they exist
+and path length is less than PATH_MAX.
+
+Made TASKBUFSIZ larger to work with many peers.
 
 # Add any other information you'd like us to know below this line.
