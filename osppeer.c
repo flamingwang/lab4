@@ -590,15 +590,6 @@ static void task_download(task_t *t, task_t *tracker_task)
 	{
 		samples[k] = 10 * MINIMUM_RATE;
 	}
-	int k = 0;
-	int last_read = 0;
-	int avg_rate = 0;
-	int samples[SAMPLE_SIZE];
-	int curr_sample = 0;
-	for(k = 0; k < SAMPLE_SIZE; k++)
-	{
-		samples[k] = 10 * MINIMUM_RATE;
-	}
 
 	// Read the file into the task buffer from the peer,
 	// and write it from the task buffer onto disk.
