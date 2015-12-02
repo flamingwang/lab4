@@ -45,4 +45,12 @@ and path length is less than PATH_MAX.
 
 Made TASKBUFSIZ larger to work with many peers.
 
+We prevented large file sizes in two ways.  One is to calculate the accumulated
+total of amt in read_to_taskbuf and check if the total size is greater than a fixed
+constant.  Another is checking the total written using t->total_written and 
+checking it against a constant.
+
+We prevented extremely slow peers by setting a minimum transfer speed.
+Peers who are slower than this are rejected and a different peer is used.
+
 # Add any other information you'd like us to know below this line.

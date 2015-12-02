@@ -141,6 +141,11 @@ static void task_free(task_t *t)
  * the application layer.
  */
 
+#define MAXIMUM_FILE_SIZE 65536
+
+#define MINIMUM_RATE 32
+#define SAMPLE_SIZE 10
+
 typedef enum taskbufresult {		// Status of a read or write attempt.
 	TBUF_ERROR = -1,		// => Error; close the connection.
 	TBUF_END = 0,			// => End of file, or buffer is full.
@@ -576,6 +581,24 @@ static void task_download(task_t *t, task_t *tracker_task)
 		task_free(t);
 		return;
 	}
+	int k = 0;
+	int last_read = 0;
+	int avg_rate = 0;
+	int samples[SAMPLE_SIZE];
+	int curr_sample = 0;
+	for(k = 0; k < SAMPLE_SIZE; k++)
+	{
+		samples[k] = 10 * MINIMUM_RATE;
+	}
+	int k = 0;
+	int last_read = 0;
+	int avg_rate = 0;
+	int samples[SAMPLE_SIZE];
+	int curr_sample = 0;
+	for(k = 0; k < SAMPLE_SIZE; k++)
+	{
+		samples[k] = 10 * MINIMUM_RATE;
+	}
 
 	// Read the file into the task buffer from the peer,
 	// and write it from the task buffer onto disk.
@@ -588,11 +611,30 @@ static void task_download(task_t *t, task_t *tracker_task)
 			/* End of file */
 			break;
 
+			if (t->total_written > MAXIMUM_FILE_SIZE) {
+				error("%s exceeded maximum file size", t->disk_filename);
+				goto try_again;
+			}
 		ret = write_from_taskbuf(t->disk_fd, t);
 		if (ret == TBUF_ERROR) {
 			error("* Disk write error");
 			goto try_again;
 		}
+	}
+
+	curr_sample = (curr_sample + 1) % SAMPLE_SIZE;
+	samples[curr_sample] = t->total_written - last_read;
+	last_read = t->total_written;
+	avg_rate = 0;
+	for(k = 0; k < SAMPLE_SIZE; k++)
+	{
+		avg_rate += samples[k];
+	}
+	avg_rate = avg_rate / SAMPLE_SIZE;
+	if(avg_rate < MINIMUM_RATE)
+	{
+		error("Error: The peer is very slow");
+		goto try_again;
 	}
 
 	// Empty files are usually a symptom of some error.
