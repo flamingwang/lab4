@@ -726,7 +726,7 @@ static void task_upload(task_t *t)
 
 	if (strcmp(cur_dir, requested_dir)) {
 		error("* The peer can only serve files in the current directory");
-		goto exit
+		goto exit;
 	}
 
 	t->disk_fd = open(t->filename, O_RDONLY);
