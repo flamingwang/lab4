@@ -720,7 +720,7 @@ static void task_upload(task_t *t)
 	}
 	else if (requested_dir == NULL)
 	{
-		error("* Requested path invalid.")
+		error("* Requested path invalid.");
 		goto exit;
 	}
 
