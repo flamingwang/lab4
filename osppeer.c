@@ -717,7 +717,7 @@ static void task_upload(task_t *t)
 	char requested_dir[PATH_MAX];
 
 	getcwd(cur_dir, PATH_MAX);
-	realpath(t->filename, requested_dir);
+	char* file_path = realpath(t->filename, requested_dir);
 
 	if (cur_dir == NULL)
 	{
