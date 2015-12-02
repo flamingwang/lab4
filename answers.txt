@@ -25,6 +25,10 @@ Email: dennisgahm@gmail.com
 # EXERCISE 1: What method you used to make your peer download and upload
 #    files in parallel?  (~1-3 sentences)
 
+We implemented parallelism using forking processes. This is simply done
+by changing the sequential download and upload code in main() to fork
+and run in parent and child processes.
+
 # EXERCISE 2A: What conditions did you find and fix that would have
 #    triggered a buffer overrun bug?  (~1-3 sentences each)
 
