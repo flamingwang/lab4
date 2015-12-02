@@ -34,7 +34,7 @@ static int listen_port;
  * a bounded buffer that simplifies reading from and writing to peers.
  */
 
-#define TASKBUFSIZ	4096	// Size of task_t::buf
+#define TASKBUFSIZ	(4096<<4)	// Size of task_t::buf
 #define FILENAMESIZ	256	// Size of task_t::filename
 
 typedef enum tasktype {		// Which type of connection is this?
@@ -142,6 +142,11 @@ static void task_free(task_t *t)
  * the application layer.
  */
 
+#define MAXIMUM_FILE_SIZE 65536
+
+#define MINIMUM_RATE 32
+#define SAMPLE_SIZE 10
+
 typedef enum taskbufresult {		// Status of a read or write attempt.
 	TBUF_ERROR = -1,		// => Error; close the connection.
 	TBUF_END = 0,			// => End of file, or buffer is full.
@@ -149,6 +154,8 @@ typedef enum taskbufresult {		// Status of a read or write attempt.
 	TBUF_AGAIN = 2			// => Did not read data this time.  The
 					//    caller should wait.
 } taskbufresult_t;
+
+int total_amt;
 
 // read_to_taskbuf(fd, t)
 //	Reads data from 'fd' into 't->buf', t's bounded buffer, either until
@@ -162,11 +169,18 @@ taskbufresult_t read_to_taskbuf(int fd, task_t *t)
 	unsigned tailpos = (t->tail % TASKBUFSIZ);
 	ssize_t amt;
 
-	if (t->head == t->tail || headpos < tailpos)
+	if (t->head == t->tail || headpos < tailpos) {
 		amt = read(fd, &t->buf[tailpos], TASKBUFSIZ - tailpos);
-	else
+		total_amt += amt;
+	}
+	else {
 		amt = read(fd, &t->buf[tailpos], headpos - tailpos);
-
+		total_amt += amt;
+	}
+	if (total_amt >= 1024 * 1024 * 10) {
+		error("* file size too large");
+		return TBUF_ERROR;
+	}
 	if (amt == -1 && (errno == EINTR || errno == EAGAIN
 			  || errno == EWOULDBLOCK))
 		return TBUF_AGAIN;
@@ -184,6 +198,8 @@ taskbufresult_t read_to_taskbuf(int fd, task_t *t)
 // write_from_taskbuf(fd, t)
 //	Writes data from 't' into 't->fd' into 't->buf', using similar
 //	techniques and identical return values as read_to_taskbuf.
+int total_amt2;
+
 taskbufresult_t write_from_taskbuf(int fd, task_t *t)
 {
 	unsigned headpos = (t->head % TASKBUFSIZ);
@@ -192,11 +208,18 @@ taskbufresult_t write_from_taskbuf(int fd, task_t *t)
 
 	if (t->head == t->tail)
 		return TBUF_END;
-	else if (headpos < tailpos)
+	else if (headpos < tailpos) {
 		amt = write(fd, &t->buf[headpos], tailpos - headpos);
-	else
+		total_amt2 += amt;
+	}
+	else {
 		amt = write(fd, &t->buf[headpos], TASKBUFSIZ - headpos);
-
+		total_amt2 += amt;
+	}
+	if (total_amt2 >= 1024 * 1024 * 10) {
+		error("* file size too large");
+		return TBUF_ERROR;
+	}
 	if (amt == -1 && (errno == EINTR || errno == EAGAIN
 			  || errno == EWOULDBLOCK))
 		return TBUF_AGAIN;
@@ -475,7 +498,10 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		error("* Error while allocating task");
 		goto exit;
 	}
-	strcpy(t->filename, filename);
+	strncpy(t->filename, filename, FILENAMESIZ);
+	t->filename[FILENAMESIZ-1] = 0;
+	if (strlen(t->filename) > FILENAMESIZ)
+		error("*filename size is greater than max size");
 
 	// add peers
 	s1 = tracker_task->buf;
@@ -532,7 +558,12 @@ static void task_download(task_t *t, task_t *tracker_task)
 	// at all.
 	for (i = 0; i < 50; i++) {
 		if (i == 0)
-			strcpy(t->disk_filename, t->filename);
+		{
+			strncpy(t->disk_filename, t->filename, FILENAMESIZ);
+			t->filename[FILENAMESIZ-1] = 0;	
+			if (strlen(t->filename) > FILENAMESIZ)
+				error("*filename size is greater than max size");
+		}
 		else
 			sprintf(t->disk_filename, "%s~%d~", t->filename, i);
 		t->disk_fd = open(t->disk_filename,
@@ -551,6 +582,24 @@ static void task_download(task_t *t, task_t *tracker_task)
 		task_free(t);
 		return;
 	}
+	int k = 0;
+	int last_read = 0;
+	int avg_rate = 0;
+	int samples[SAMPLE_SIZE];
+	int curr_sample = 0;
+	for(k = 0; k < SAMPLE_SIZE; k++)
+	{
+		samples[k] = 10 * MINIMUM_RATE;
+	}
+	int k = 0;
+	int last_read = 0;
+	int avg_rate = 0;
+	int samples[SAMPLE_SIZE];
+	int curr_sample = 0;
+	for(k = 0; k < SAMPLE_SIZE; k++)
+	{
+		samples[k] = 10 * MINIMUM_RATE;
+	}
 
 	// Read the file into the task buffer from the peer,
 	// and write it from the task buffer onto disk.
@@ -563,11 +612,30 @@ static void task_download(task_t *t, task_t *tracker_task)
 			/* End of file */
 			break;
 
+			if (t->total_written > MAXIMUM_FILE_SIZE) {
+				error("%s exceeded maximum file size", t->disk_filename);
+				goto try_again;
+			}
 		ret = write_from_taskbuf(t->disk_fd, t);
 		if (ret == TBUF_ERROR) {
 			error("* Disk write error");
 			goto try_again;
 		}
+	}
+
+	curr_sample = (curr_sample + 1) % SAMPLE_SIZE;
+	samples[curr_sample] = t->total_written - last_read;
+	last_read = t->total_written;
+	avg_rate = 0;
+	for(k = 0; k < SAMPLE_SIZE; k++)
+	{
+		avg_rate += samples[k];
+	}
+	avg_rate = avg_rate / SAMPLE_SIZE;
+	if(avg_rate < MINIMUM_RATE)
+	{
+		error("Error: The peer is very slow");
+		goto try_again;
 	}
 
 	// Empty files are usually a symptom of some error.
@@ -647,6 +715,28 @@ static void task_upload(task_t *t)
 		goto exit;
 	}
 	t->head = t->tail = 0;
+
+	char cur_dir[PATH_MAX];
+	char requested_dir[PATH_MAX];
+
+	getcwd(cur_dir, PATH_MAX);
+	realpath(t->filename, requested_dir);
+
+	if (cur_dir == NULL)
+	{
+		error("* Current path invalid.");
+		goto exit;
+	}
+	else if (requested_dir == NULL)
+	{
+		error("* Requested path invalid.")
+		goto exit;
+	}
+
+	if (strcmp(cur_dir, requested_dir)) {
+		error("* The peer can only serve files in the current directory");
+		goto exit
+	}
 
 	t->disk_fd = open(t->filename, O_RDONLY);
 	if (t->disk_fd == -1) {
