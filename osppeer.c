@@ -700,6 +700,12 @@ static void task_upload(task_t *t)
 			break;
 	}
 
+	if(strlen(t->buf) > FILENAMESIZ + 12)
+	{
+		error("Error: filename too long\n");
+		goto exit;
+	}
+
 	assert(t->head == 0);
 	if (osp2p_snscanf(t->buf, t->tail, "GET %s OSP2P\n", t->filename) < 0) {
 		error("* Odd request %.*s\n", t->tail, t->buf);
@@ -711,7 +717,7 @@ static void task_upload(task_t *t)
 	char requested_dir[PATH_MAX];
 
 	getcwd(cur_dir, PATH_MAX);
-	realpath(t->filename, requested_dir);
+	char* file_path = realpath(t->filename, requested_dir);
 
 	if (cur_dir == NULL)
 	{
@@ -726,6 +732,13 @@ static void task_upload(task_t *t)
 
 	if (strcmp(cur_dir, requested_dir)) {
 		error("* The peer can only serve files in the current directory");
+		goto exit;
+	}
+
+	struct stat data;
+	if (stat(file_path, &data) < 0) {
+		errno = ENOENT;
+		error("File does not exist\n");
 		goto exit;
 	}
 

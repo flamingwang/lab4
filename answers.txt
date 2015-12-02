@@ -36,6 +36,8 @@ Where there was an strcpy we used strncpy so that the characters could be
 limited to FILENAMESIZ.  If the file name size is greater than filenamesiz,
 then an error is outputted.  We also null-terminated the string.
 
+In task_upload strlen is used to check if the filename is too long.
+
 
 # EXERCISE 2B: What other robustness problems did you fix?  (~1-3 sentences
 #    each)
