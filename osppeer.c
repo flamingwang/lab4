@@ -22,6 +22,7 @@
 #include <limits.h>
 #include "md5.h"
 #include "osp2p.h"
+#include <sys/wait.h>
 
 static struct in_addr listen_addr;	// Define listening endpoint
 static int listen_port;
@@ -688,6 +689,7 @@ int main(int argc, char *argv[])
 	char *s;
 	const char *myalias;
 	struct passwd *pwent;
+	int num_childs;
 
 	osp2p_sscanf("164.67.100.231:12997", "%I:%d",
 		     &tracker_addr, &tracker_port);
@@ -743,14 +745,64 @@ int main(int argc, char *argv[])
 	listen_task = start_listen();
 	register_files(tracker_task, myalias);
 
+	/* Original Download
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++)
 		if ((t = start_download(tracker_task, argv[1])))
 			task_download(t, tracker_task);
+	*/
+	
+	pid_t pid;//pid variable
+	//Forked download
+	num_childs = 0;
+	for (; argc > 1; argc--, argv++){
+	  if ((t = start_download(tracker_task, argv[1]))){
+	    pid = fork();
+	    if(pid < 0){
+	      //ERROR
+	      printf("ERROR in download forking!!\n");
+	    }
+	    if(pid == 0){
+	      //child
+	      task_download(t, tracker_task);
+	      exit(0);
+	    }
+	    if(pid > 0){
+	      //parent
+	      num_childs++;
+	      task_free(t);
+	    }
+	  }
+	}
+	//Join up, wait untill all children finish
+	while(num_childs > 0){
+	  num_childs--;
+	  wait(NULL);
+	}
 
+	/* Original Upload
 	// Then accept connections from other peers and upload files to them!
 	while ((t = task_listen(listen_task)))
 		task_upload(t);
+	*/
+	
+	//Forked Upload
+	while ((t = task_listen(listen_task))){
+	  pid = fork();
+	  if(pid < 0){
+	    //Error
+	    printf("ERROR in upload forking!!\n");
+	  }
+	  if(pid == 0){
+	    //child
+	    task_upload(t);
+	    exit(0);
+	  }
+	  if(pid > 0){
+	    //parent
+	    task_free(t);
+	  }
+	}
 
 	return 0;
 }
